@@ -7,14 +7,11 @@ from PIL import Image
 from torchvision.transforms.functional import InterpolationMode
 import torchvision.transforms as T
 
-# Inicializar EasyOCR para solo idiomas latinos
-reader_latin = easyocr.Reader(['fr', 'de', 'en', 'es', 'it'], gpu=True)
-
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
 # Cargar el modelo y tokenizer de InternVL
-path = 'OpenGVLab/InternVL2_5-1B'
+path = 'OpenGVLab/InternVL2_5-2B'
 model = AutoModel.from_pretrained(
     path,
     torch_dtype=torch.bfloat16,
@@ -30,8 +27,10 @@ model_ld = AutoModelForSequenceClassification.from_pretrained(model_ckpt)
 
 # Función para realizar OCR con EasyOCR
 def extract_text_easyocr(image):
-    reader = easyocr.Reader(['en', 'es', 'fr'], gpu=True)
-    results = reader.readtext(image)
+    # reader = easyocr.Reader(['en', 'es', 'fr'], gpu=True)
+    # Inicializar EasyOCR para solo idiomas latinos
+    reader_latin = easyocr.Reader(['fr', 'de', 'en', 'es', 'it'], gpu=True)
+    results = reader_latin.readtext(image)
     extracted_text = ""
     for _, text, _ in results:
         extracted_text += text + " "
@@ -41,7 +40,8 @@ def extract_text_easyocr(image):
 def extract_text_internvl(image_path):
     pixel_values = load_image(image_path, max_num=12).to(torch.bfloat16).cuda()
     generation_config = dict(max_new_tokens=512, do_sample=True)
-    question = '<image>\n Give me the complete plain text in the image in the original language.'
+    question = '<image>\n Give me the complete plain text in the image in the original language. Do not provide explanations, translations, or any additional text. Only the plain text.'
+    # question = '<image>\n Give me the complete plain text in the image in the original language.'
     response = model.chat(tokenizer, pixel_values, question, generation_config)
     response = response.replace("\n", " ").strip()
     return response
@@ -49,7 +49,9 @@ def extract_text_internvl(image_path):
 # Función para combinar ambos resultados de OCR
 def combine_ocr_responses(response_easyocr, response_internvl):
     #question = f'Combine {response_easyocr} and {response_internvl}, preserving their original alphabets and correcting any errors.'
-    question = f'Combine {response_easyocr} and {response_internvl}, preserving their original alphabets and correcting any errors. Return only the corrected phrase inside square brackets, like this: [corrected text]. Do not provide ANY explanations, translations or any additional text.'
+    # question = f'Combine "{response_easyocr}" and "{response_internvl}" into a single coherent phrase, giving more importance to "{response_internvl}" as it comes from an LLM capable of detecting text within images. Ensure the original languages and alphabets of both inputs are preserved. Return only the combined phrase inside square brackets, like this: [combined text]. Do not translate, explain, or add any other text—only the phrase inside square brackets.'
+    question = f'Combine "{response_easyocr}" and "{response_internvl}" into a single meaningful phrase, ensuring that both inputs are equally considered and their original alphabets are preserved. Do not include explanations, translations, or any additional text—only the corrected phrase.'
+    # question = f'Combine {response_easyocr} and {response_internvl}, preserving their original alphabets and correcting any errors. Return only the corrected phrase inside square brackets, like this: [corrected text]. Do not provide any explanations, translations or any additional text.'
     generation_config = dict(max_new_tokens=1024, do_sample=True)
     combined_response = model.chat(tokenizer, None, question, generation_config, history=None, return_history=False)
     return combined_response.replace("\n", " ").strip()
@@ -77,7 +79,7 @@ def translate_text(text, original_language, target_language):
 
 # Función para traducción con InternVL
 def translate_internvl(text, original_language, target_language):
-    question = f'The following text "{text}" it is in {original_language} language, please translate it to {target_language} language. Remove any parts that are incoherent or do not make sense in the text. Provide only the cleaned and translated text, without explanations, context, or additional comments.'
+    question = f'The following text "{text}" it is in {original_language} language, translate it to {target_language} language. Remove any parts that are incoherent or do not make sense in the text. Do not include explanations or any additional text-only the translated text.'
     #question = f'The following text "{text}" it is in {original_language}, please translate it to {target_language}. Remove any parts that are incoherent or do not make sense in the text. Provide only the cleaned and translated text, without explanations, context, or additional comments.'
     generation_config = dict(max_new_tokens=1024, do_sample=True)
     #pixel_values = load_image(image_path, max_num=12).to(torch.bfloat16).cuda()
@@ -174,10 +176,19 @@ def process_image(image, target_language="es"):
     
     # Identificar el idioma del texto combinado
     detected_language = detect_language(combined_text)
-    
+
+    # Diccionario de idiomas
+    languages = {
+        "es": "spanish",
+        "en": "english",
+        "fr": "french",
+        "de": "german",
+        "it": "italian"
+    }
+
     # Realizar la traducción
     translation_model = translate_text(combined_text, detected_language, target_language)
-    translation_internvl = translate_internvl(combined_text, detected_language, target_language)
+    translation_internvl = translate_internvl(combined_text, languages[detected_language], languages[target_language])
     
     return (text_easyocr, text_internvl, combined_text, detected_language, translation_model, translation_internvl)
 
