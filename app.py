@@ -197,7 +197,7 @@ iface = gr.Interface(
         gr.Textbox(label="Traducción con modelo"),
         gr.Textbox(label="Traducción con InternVL")
     ],
-    live=False,  # Desactivamos el modo "live"
+    live=True,  # Desactivamos el modo "live"
     description="Carga una imagen para realizar OCR y traducción con EasyOCR e InternVL.",
     title="Extractor y Traductor de Texto"
 )
